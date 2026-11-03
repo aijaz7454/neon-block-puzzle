@@ -55,4 +55,4 @@ Works in current versions of Chrome, Edge, Firefox and Safari, on desktop and mo
 
 ## License
 
-Free to use and modify. Add your preferred license here before publishing.
+Free to use and modify..
