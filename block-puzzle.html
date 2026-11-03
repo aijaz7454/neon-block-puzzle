@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Neon Block Puzzle</title>
+<style>
+:root{--bg:#0f172a;--txt:#e2e8f0;--mut:#94a3b8}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;overflow:hidden;touch-action:none;overscroll-behavior:none}
+body{background:radial-gradient(circle at 12% 8%,rgba(34,211,238,.16),transparent 42%),radial-gradient(circle at 88% 92%,rgba(217,70,239,.16),transparent 45%),radial-gradient(circle at 80% 15%,rgba(249,115,22,.08),transparent 35%),var(--bg);
+  color:var(--txt);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#hud{display:flex;gap:10px;align-items:stretch;width:340px}
+.card{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:8px 14px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 8px 24px rgba(0,0,0,.35);display:flex;flex-direction:column;justify-content:center;min-width:0}
+.lbl{font-size:12px;color:var(--mut);letter-spacing:.04em}
+.card b{font-size:26px;line-height:1.15;font-variant-numeric:tabular-nums;display:inline-block;transform-origin:left center;text-shadow:0 0 14px rgba(34,211,238,.55)}
+#bestv{text-shadow:0 0 14px rgba(250,204,21,.55)}
+.btn{font:inherit;font-weight:700;font-size:15px;color:#0f172a;border:0;border-radius:16px;padding:0 18px;cursor:pointer;background:linear-gradient(135deg,#67e8f9,#d946ef);box-shadow:0 6px 22px rgba(217,70,239,.45),inset 0 1px 0 rgba(255,255,255,.6);transition:transform .15s,box-shadow .15s,filter .15s}
+.btn:hover{transform:translateY(-2px);filter:brightness(1.1);box-shadow:0 10px 28px rgba(34,211,238,.5),inset 0 1px 0 rgba(255,255,255,.6)}
+.btn:active{transform:translateY(1px) scale(.97)}
+.btn:focus-visible{outline:2px solid #fff;outline-offset:3px}
+#panel{padding:10px;border-radius:26px;background:linear-gradient(145deg,rgba(255,255,255,.1),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);box-shadow:0 30px 70px rgba(0,0,0,.6),0 0 60px rgba(34,211,238,.1),inset 0 1px 0 rgba(255,255,255,.25);will-change:transform}
+#board{display:block}
+#fx{position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:5}
+#over{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(2,6,23,.62);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .5s}
+#over.show{opacity:1;pointer-events:auto}
+.box{text-align:center;padding:32px 40px;border-radius:28px;background:linear-gradient(145deg,rgba(255,255,255,.12),rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.2);box-shadow:0 30px 80px rgba(0,0,0,.7),0 0 70px rgba(217,70,239,.25);transform:scale(.85) translateY(20px);transition:transform .55s cubic-bezier(.2,1.4,.4,1)}
+#over.show .box{transform:none}
+.box h2{margin:0 0 6px;font-size:36px;letter-spacing:.02em;background:linear-gradient(90deg,#67e8f9,#d946ef,#fb923c);-webkit-background-clip:text;background-clip:text;color:transparent}
+.box .big{font-size:56px;font-weight:800;text-shadow:0 0 28px rgba(34,211,238,.6);font-variant-numeric:tabular-nums}
+.box p{margin:4px 0 20px;color:var(--mut);min-height:1.4em}
+.box .btn{padding:14px 28px;font-size:17px}
+@media (prefers-reduced-motion:reduce){.btn,.box,#over{transition:none}}
+</style>
+</head>
+<body>
+<div id="hud">
+  <div class="card"><span class="lbl">Score</span><b id="score">0</b></div>
+  <div class="card"><span class="lbl">High score</span><b id="bestv">0</b></div>
+  <button class="btn" id="restart" type="button">Restart Game</button>
+</div>
+<div id="panel"><canvas id="board"></canvas></div>
+<canvas id="fx"></canvas>
+<div id="over" role="dialog" aria-label="Game over">
+  <div class="box">
+    <h2>Game Over</h2>
+    <div class="big" id="fs">0</div>
+    <p id="fb"></p>
+    <button class="btn" id="restart2" type="button">Restart Game</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r); this.closePath();
+  };
+}
+const N = 8, PARTICLE_MS = 500, STORE_KEY = 'neonBlockPuzzle.best';
+const COL = {
+  cyan:    ['#cffafe', '#0891b2', 'rgba(34,211,238,.9)'],
+  orange:  ['#fed7aa', '#ea580c', 'rgba(251,146,60,.9)'],
+  purple:  ['#e9d5ff', '#7e22ce', 'rgba(168,85,247,.9)'],
+  magenta: ['#fbcfe8', '#c026d3', 'rgba(232,121,249,.9)'],
+  green:   ['#bbf7d0', '#15803d', 'rgba(74,222,128,.9)'],
+  yellow:  ['#fef08a', '#ca8a04', 'rgba(250,204,21,.9)']
+};
+const SHAPES = [
+  { c: 'yellow',  m: [[1]] },
+  { c: 'cyan',    m: [[1, 1]], rot: 1 },
+  { c: 'cyan',    m: [[1, 1, 1]], rot: 1 },
+  { c: 'cyan',    m: [[1, 1, 1, 1]], rot: 1 },
+  { c: 'magenta', m: [[1, 1], [1, 1]] },
+  { c: 'orange',  m: [[1, 0], [1, 0], [1, 1]], rot: 1, mir: 1 },
+  { c: 'purple',  m: [[1, 1, 1], [0, 1, 0]], rot: 1 },
+  { c: 'green',   m: [[1, 1, 0], [0, 1, 1]], rot: 1, mir: 1 }
+];
+const rot = m => m[0].map((_, x) => m.map((_, y) => m[m.length - 1 - y][x]));
+function randPiece() {
+  const s = SHAPES[Math.random() * SHAPES.length | 0];
+  let m = s.m;
+  if (s.mir && Math.random() < .5) m = m.map(r => [...r].reverse());
+  if (s.rot) for (let k = Math.random() * 4 | 0; k > 0; k--) m = rot(m);
+  return { m, c: s.c, n: m.flat().reduce((a, b) => a + b, 0), fits: true };
+}
+function drawBlock(g, x, y, s, name, alpha = 1, lift = false) {
+  const [l, d, glow] = COL[name], r = s * .22, i = s * .06;
+  g.save(); g.globalAlpha = alpha;
+  g.shadowColor = lift ? 'rgba(0,0,0,.6)' : glow;
+  g.shadowBlur = lift ? s * .55 : s * .22;
+  g.shadowOffsetY = lift ? s * .3 : 0;
+  const gr = g.createLinearGradient(x, y, x + s, y + s);
+  gr.addColorStop(0, l); gr.addColorStop(.35, glow.replace('.9', '1')); gr.addColorStop(1, d);
+  g.fillStyle = gr; g.beginPath(); g.roundRect(x + i, y + i, s - 2 * i, s - 2 * i, r); g.fill();
+  g.shadowColor = 'transparent'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+  const hl = g.createLinearGradient(0, y, 0, y + s);
+  hl.addColorStop(0, 'rgba(255,255,255,.5)'); hl.addColorStop(.5, 'rgba(255,255,255,0)'); hl.addColorStop(1, 'rgba(0,0,0,.28)');
+  g.fillStyle = hl; g.beginPath(); g.roundRect(x + i * 2, y + i * 2, s - 4 * i, s - 4 * i, r * .7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.4)'; g.lineWidth = Math.max(1, s * .03);
+  g.beginPath(); g.roundRect(x + i + .5, y + i + .5, s - 2 * i - 1, s - 2 * i - 1, r); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,.65)'; g.beginPath(); g.roundRect(x + s * .2, y + s * .17, s * .3, s * .09, s * .05); g.fill();
+  g.restore();
+}
+function drawPiece(g, p, cx, cy, s, alpha = 1, lift = false) {
+  const x0 = cx - p.m[0].length * s / 2, y0 = cy - p.m.length * s / 2;
+  p.m.forEach((row, y) => row.forEach((v, x) => { if (v) drawBlock(g, x0 + x * s, y0 + y * s, s, p.c, alpha, lift); }));
+}
+const $ = q => document.querySelector(q);
+const pt = e => e.touches ? (e.touches[0] || e.changedTouches[0]) : e;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+class Game {
+  constructor() {
+    this.cv = $('#board'); this.g = this.cv.getContext('2d');
+    this.fxc = $('#fx'); this.f = this.fxc.getContext('2d');
+    this.panel = $('#panel'); this.hud = $('#hud'); this.over$ = $('#over');
+    this.scoreEl = $('#score'); this.bestEl = $('#bestv');
+    this.best = 0;
+    try { this.best = +localStorage.getItem(STORE_KEY) || 0; } catch (e) { this.best = 0; }
+    this.shownBest = -1; this.shownTxt = -1;
+    this.timer = 0; this.last = 0;
+    this.bind(); this.layout(); this.reset();
+    requestAnimationFrame(t => { this.last = t; this.frame(t); });
+  }
+  bind() {
+    const down = e => this.down(e), move = e => this.move(e), up = e => this.up(e);
+    this.cv.addEventListener('mousedown', down);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    this.cv.addEventListener('touchstart', down, { passive: false });
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', up, { passive: false });
+    window.addEventListener('touchcancel', up, { passive: false });
+    window.addEventListener('resize', () => this.layout());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.layout(), 150));
+    $('#restart').addEventListener('click', () => this.reset());
+    $('#restart2').addEventListener('click', () => this.reset());
+  }
+  layout() {
+    const dpr = window.devicePixelRatio || 1;
+    const aw = Math.min(innerWidth - 24, 560), ah = innerHeight - 90 - 24;
+    const c = Math.max(20, Math.floor(Math.min((aw - 20) / 8.4, (ah - 20) / 11.8)));
+    this.c = c; this.pad = Math.round(c * .2);
+    this.W = 8 * c + 2 * this.pad;
+    this.bh = 8 * c + 2 * this.pad;
+    this.ty = this.bh + Math.round(c * .12); this.th = Math.round(c * 2.5);
+    this.H = this.ty + this.th + this.pad;
+    this.ts = Math.min(c * .55, (this.W / 3 - 12) / 4);
+    this.cv.width = this.W * dpr; this.cv.height = this.H * dpr;
+    this.cv.style.width = this.W + 'px'; this.cv.style.height = this.H + 'px';
+    this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.fxc.width = innerWidth * dpr; this.fxc.height = innerHeight * dpr;
+    this.f.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.hud.style.width = (this.W + 20) + 'px';
+  }
+  reset() {
+    clearTimeout(this.timer);
+    this.grid = Array.from({ length: N }, () => Array(N).fill(null));
+    this.score = 0; this.shown = 0; this.isOver = false;
+    this.drag = null; this.ret = null;
+    this.particles = []; this.texts = []; this.glows = [];
+    this.shake = 0; this.flash = 0; this.startBest = this.best;
+    this.over$.classList.remove('show');
+    this.panel.style.transform = '';
+    this.newSet();
+  }
+  newSet() {
+    let set;
+    for (let k = 0; k < 30; k++) {
+      set = [randPiece(), randPiece(), randPiece()];
+      if (set.some(p => this.fits(p.m))) break;
+    }
+    this.tray = set; this.refreshFits();
+  }
+  canPlace(m, gx, gy) {
+    for (let y = 0; y < m.length; y++) for (let x = 0; x < m[0].length; x++) {
+      if (!m[y][x]) continue;
+      const X = gx + x, Y = gy + y;
+      if (X < 0 || Y < 0 || X >= N || Y >= N || this.grid[Y][X]) return false;
+    }
+    return true;
+  }
+  fits(m) {
+    for (let y = 0; y <= N - m.length; y++) for (let x = 0; x <= N - m[0].length; x++) if (this.canPlace(m, x, y)) return true;
+    return false;
+  }
+  refreshFits() { this.tray.forEach(p => { if (p) p.fits = this.fits(p.m); }); }
+  rect() { return this.cv.getBoundingClientRect(); }
+  slotCenter(i, r) { return [r.left + (i + .5) * this.W / 3, r.top + this.ty + this.th / 2]; }
+
+  down(e) {
+    if (this.isOver || this.drag || this.ret) return;
+    const p = pt(e), r = this.rect(), x = p.clientX - r.left, y = p.clientY - r.top;
+    if (y < this.ty - this.c * .3 || y > this.ty + this.th + this.c * .3) return;
+    const i = Math.floor(x / (this.W / 3));
+    if (i < 0 || i > 2 || !this.tray[i]) return;
+    const off = e.touches ? -this.c * 1.6 : 0;
+    const [sx, sy] = this.slotCenter(i, r);
+    this.drag = { i, px: p.clientX, py: p.clientY + off, off, x: sx, y: sy, cs: this.ts };
+    e.preventDefault();
+  }
+  move(e) {
+    if (!this.drag) return;
+    const p = pt(e);
+    this.drag.px = p.clientX; this.drag.py = p.clientY + this.drag.off;
+    if (e.cancelable) e.preventDefault();
+  }
+  up(e) {
+    const d = this.drag; if (!d) return;
+    if (e.cancelable) e.preventDefault();
+    const p = this.tray[d.i], { gx, gy } = this.land();
+    this.drag = null;
+    if (this.canPlace(p.m, gx, gy)) this.place(d.i, gx, gy);
+    else this.ret = { i: d.i, x0: d.x, y0: d.y, cs0: d.cs, t0: performance.now() };
+  }
+  land() {
+    const d = this.drag, p = this.tray[d.i], r = this.rect(), m = p.m;
+    const cx = (d.px - r.left - this.pad) / this.c, cy = (d.py - r.top - this.pad) / this.c;
+    return { gx: Math.round(cx - m[0].length / 2), gy: Math.round(cy - m.length / 2) };
+  }
+  place(i, gx, gy) {
+    const p = this.tray[i], r = this.rect(), c = this.c, now = performance.now();
+    p.m.forEach((row, y) => row.forEach((v, x) => { if (v) this.grid[gy + y][gx + x] = p.c; }));
+    let gained = p.n;
+    const rows = [], cols = [];
+    for (let k = 0; k < N; k++) {
+      if (this.grid[k].every(Boolean)) rows.push(k);
+      if (this.grid.every(row => row[k])) cols.push(k);
+    }
+    const cells = new Map();
+    rows.forEach(y => { for (let x = 0; x < N; x++) cells.set(y * N + x, this.grid[y][x]); });
+    cols.forEach(x => { for (let y = 0; y < N; y++) cells.set(y * N + x, this.grid[y][x]); });
+    const lines = rows.length + cols.length;
+    cells.forEach((color, key) => {
+      const y = key / N | 0, x = key % N;
+      this.grid[y][x] = null;
+      this.glows.push({ x, y, t0: now });
+      const cx = r.left + this.pad + x * c + c / 2, cy = r.top + this.pad + y * c + c / 2;
+      for (let k = 0; k < 9; k++) {
+        const a = Math.random() * Math.PI * 2, sp = c * (2 + Math.random() * 6);
+        this.particles.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - c * 1.5, s: c * (.07 + Math.random() * .13), color, age: 0 });
+      }
+    });
+    if (lines) gained += 10 * lines * lines;
+    this.score += gained;
+    const tx = r.left + this.pad + (gx + p.m[0].length / 2) * c, ty = r.top + this.pad + (gy + p.m.length / 2) * c;
+    this.texts.push({ x: tx, y: ty, s: '+' + gained, big: lines > 1, t0: now });
+    if (lines > 1) this.texts.push({ x: r.left + r.width / 2, y: r.top + this.pad + 4 * c, s: 'COMBO x' + lines, big: true, combo: true, t0: now });
+    this.shake = lines ? 6 + lines * 3 : 3;
+    this.flash = lines ? .6 : .25;
+    this.scoreEl.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.4)' }, { transform: 'scale(1)' }], { duration: 320, easing: 'cubic-bezier(.2,1.6,.4,1)' });
+    this.tray[i] = null;
+    if (this.tray.every(t => !t)) this.newSet(); else this.refreshFits();
+    this.checkOver();
+  }
+  checkOver() {
+    const rem = this.tray.filter(Boolean);
+    if (rem.length && !rem.some(p => p.fits)) {
+      this.isOver = true;
+      $('#fs').textContent = this.score;
+      $('#fb').textContent = this.score > 0 && this.score >= this.best && this.score > this.startBest ? 'New high score!' : 'High score: ' + this.best;
+      this.timer = setTimeout(() => this.over$.classList.add('show'), 600);
+    }
+  }
+  frame(t) {
+    const dt = Math.min(.05, (t - this.last) / 1000 || 0); this.last = t;
+    this.update(dt, t); this.draw(t); this.drawFx(t);
+    requestAnimationFrame(x => this.frame(x));
+  }
+  update(dt, t) {
+    if (this.shake > .2) {
+      this.panel.style.transform = `translate(${(Math.random() - .5) * this.shake}px,${(Math.random() - .5) * this.shake}px)`;
+      this.shake *= Math.pow(.003, dt);
+    } else if (this.shake) { this.shake = 0; this.panel.style.transform = ''; }
+    this.flash = Math.max(0, this.flash - dt * 2.5);
+    if (this.shown < this.score) this.shown = Math.min(this.score, this.shown + Math.max(1, Math.ceil((this.score - this.shown) * Math.min(1, dt * 9))));
+    if (this.score > this.best) {
+      this.best = this.score;
+      try { localStorage.setItem(STORE_KEY, String(this.best)); } catch (e) { /* storage unavailable */ }
+    }
+    if (this.shownTxt !== this.shown) { this.shownTxt = this.shown; this.scoreEl.textContent = this.shown; }
+    if (this.shownBest !== this.best) { this.shownBest = this.best; this.bestEl.textContent = this.best; }
+    const d = this.drag;
+    if (d) {
+      d.x += (d.px - d.x) * (1 - Math.exp(-dt * 30));
+      d.y += (d.py - d.y) * (1 - Math.exp(-dt * 30));
+      d.cs += (this.c * 1.2 - d.cs) * (1 - Math.exp(-dt * 16));
+    }
+    this.particles.forEach(p => { p.age += dt * 1000; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += this.c * 14 * dt; p.vx *= .985; });
+    this.particles = this.particles.filter(p => p.age < PARTICLE_MS);
+    this.glows = this.glows.filter(g => t - g.t0 < 380);
+    this.texts = this.texts.filter(x => t - x.t0 < 1000);
+  }
+  draw(t) {
+    const g = this.g, c = this.c, pad = this.pad, W = this.W;
+    g.clearRect(0, 0, W, this.H);
+    g.fillStyle = 'rgba(2,6,23,.4)'; g.beginPath(); g.roundRect(0, 0, W, this.bh, 18); g.fill();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const px = pad + x * c, py = pad + y * c;
+      const cg = g.createLinearGradient(0, py, 0, py + c);
+      cg.addColorStop(0, 'rgba(0,0,0,.65)'); cg.addColorStop(1, 'rgba(30,41,59,.55)');
+      g.fillStyle = cg; g.beginPath(); g.roundRect(px + 2, py + 2, c - 4, c - 4, c * .2); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.06)'; g.lineWidth = 1;
+      g.beginPath(); g.roundRect(px + 2.5, py + 2.5, c - 5, c - 5, c * .2); g.stroke();
+    }
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (this.grid[y][x]) drawBlock(g, pad + x * c, pad + y * c, c, this.grid[y][x]);
+    if (this.drag) {
+      const p = this.tray[this.drag.i], { gx, gy } = this.land();
+      if (this.canPlace(p.m, gx, gy)) {
+        p.m.forEach((row, y) => row.forEach((v, x) => {
+          if (!v) return;
+          const px = pad + (gx + x) * c, py = pad + (gy + y) * c;
+          g.save(); g.globalAlpha = .38; g.fillStyle = COL[p.c][2];
+          g.shadowColor = COL[p.c][2]; g.shadowBlur = c * .3;
+          g.beginPath(); g.roundRect(px + 3, py + 3, c - 6, c - 6, c * .22); g.fill();
+          g.globalAlpha = .8; g.strokeStyle = COL[p.c][0]; g.lineWidth = 1.5; g.stroke();
+          g.restore();
+        }));
+      }
+    }
+    this.glows.forEach(o => {
+      const a = 1 - (t - o.t0) / 380;
+      g.fillStyle = `rgba(255,255,255,${a * .85})`;
+      g.beginPath(); g.roundRect(pad + o.x * c + 2, pad + o.y * c + 2, c - 4, c - 4, c * .2); g.fill();
+    });
+    if (this.flash > 0) { g.fillStyle = `rgba(255,255,255,${this.flash * .22})`; g.beginPath(); g.roundRect(0, 0, W, this.bh, 18); g.fill(); }
+    for (let i = 0; i < 3; i++) {
+      const sx = i * W / 3 + 5, sw = W / 3 - 10;
+      g.fillStyle = 'rgba(2,6,23,.3)'; g.beginPath(); g.roundRect(sx, this.ty, sw, this.th, 16); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.07)'; g.lineWidth = 1; g.beginPath(); g.roundRect(sx + .5, this.ty + .5, sw - 1, this.th - 1, 16); g.stroke();
+      const p = this.tray[i];
+      if (!p || (this.drag && this.drag.i === i) || (this.ret && this.ret.i === i)) continue;
+      drawPiece(g, p, (i + .5) * W / 3, this.ty + this.th / 2, this.ts, p.fits || this.isOver ? 1 : .35);
+    }
+  }
+  drawFx(t) {
+    const f = this.f; f.clearRect(0, 0, innerWidth, innerHeight);
+    f.save(); f.globalCompositeOperation = 'lighter';
+    this.particles.forEach(p => {
+      const a = 1 - p.age / PARTICLE_MS;
+      f.globalAlpha = a * a; f.fillStyle = COL[p.color][2]; f.shadowColor = COL[p.color][2]; f.shadowBlur = 10;
+      f.beginPath(); f.arc(p.x, p.y, p.s * (.4 + .6 * a), 0, Math.PI * 2); f.fill();
+      f.fillStyle = '#fff'; f.globalAlpha = a * .7; f.beginPath(); f.arc(p.x, p.y, p.s * .3 * a, 0, Math.PI * 2); f.fill();
+    });
+    f.restore();
+    this.texts.forEach(o => {
+      const k = (t - o.t0) / 1000, a = k < .7 ? 1 : 1 - (k - .7) / .3;
+      const pop = 1 + .35 * Math.max(0, 1 - k * 5);
+      f.save(); f.globalAlpha = a; f.translate(o.x, o.y - k * this.c * (o.combo ? .8 : 1.6)); f.scale(pop, pop);
+      f.font = `800 ${Math.round(this.c * (o.combo ? .85 : .6))}px "Trebuchet MS",system-ui,sans-serif`;
+      f.textAlign = 'center'; f.textBaseline = 'middle';
+      f.lineWidth = 5; f.strokeStyle = 'rgba(15,23,42,.8)'; f.strokeText(o.s, 0, 0);
+      f.fillStyle = o.combo ? '#f0abfc' : '#fef08a'; f.shadowColor = o.combo ? '#d946ef' : '#facc15'; f.shadowBlur = 16; f.fillText(o.s, 0, 0);
+      f.restore();
+    });
+    let dp = null;
+    if (this.drag) dp = { p: this.tray[this.drag.i], x: this.drag.x, y: this.drag.y, s: this.drag.cs };
+    else if (this.ret) {
+      const r = this.rect(), k = Math.min(1, (t - this.ret.t0) / 240), e = easeOut(k);
+      const [sx, sy] = this.slotCenter(this.ret.i, r);
+      dp = { p: this.tray[this.ret.i], x: this.ret.x0 + (sx - this.ret.x0) * e, y: this.ret.y0 + (sy - this.ret.y0) * e, s: this.ret.cs0 + (this.ts - this.ret.cs0) * e };
+      if (k >= 1) this.ret = null;
+    }
+    if (dp) drawPiece(f, dp.p, dp.x, dp.y, dp.s, 1, true);
+  }
+}
+new Game();
+})();
+</script>
+</body>
+</html>
