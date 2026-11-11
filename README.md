@@ -30,16 +30,7 @@ Pieces cannot be rotated, so plan your placements carefully. When all three piec
 
 ## Run Locally
 
-Open `block-puzzle.html` in any modern browser. That's all.
-
-## Deploy
-
-Upload the HTML file to any static host, for example:
-
-- GitHub Pages
-- Netlify (drag and drop)
-- Vercel
-- Any web server
+Open `block-puzzle.html` in any modern browser. That's all 
 
 If you host it as `index.html`, it will load at the root URL.
 
